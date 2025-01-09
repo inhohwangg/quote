@@ -1,0 +1,54 @@
+name: quote
+description: "A new Flutter project."
+publish_to: 'none'
+
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.5.3
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  cupertino_icons: ^1.0.8
+  dio: ^5.7.0
+  get: ^4.6.6
+  gap: ^3.0.1
+  go_router: ^14.6.3
+  intl: ^0.20.1
+  shared_preferences: ^2.3.5
+  step_progress_indicator: ^1.0.2
+  flutter_animate: ^4.5.2
+  carousel_slider: ^5.0.0
+  lottie: ^3.2.0
+  font_awesome_flutter: ^10.8.0
+  dots_indicator: ^3.0.0
+  get_storage: ^2.1.1
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+
+  flutter_lints: ^4.0.0
+
+flutter:
+
+  uses-material-design: true
+
+  assets:
+    - assets/images/
+    - assets/fonts/
+
+  fonts:
+    - family: PretendardGOV
+      fonts:
+        - asset: assets/fonts/PretendardGOV-Black.ttf
+        - asset: assets/fonts/PretendardGOV-Bold.ttf
+        - asset: assets/fonts/PretendardGOV-ExtraBold.ttf
+        - asset: assets/fonts/PretendardGOV-ExtraLight.ttf
+        - asset: assets/fonts/PretendardGOV-Light.ttf
+        - asset: assets/fonts/PretendardGOV-Medium.ttf
+        - asset: assets/fonts/PretendardGOV-Regular.ttf
+        - asset: assets/fonts/PretendardGOV-SemiBold.ttf
+        - asset: assets/fonts/PretendardGOV-Thin.ttf

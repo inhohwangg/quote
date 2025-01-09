@@ -1,0 +1,12 @@
+include: package:flutter_lints/flutter.yaml
+
+linter:
+  rules:
+    prefer_const_constructors: false
+    prefer_const_literals_to_create_immutables: false
+    prefer_const_constructors_in_immutables: false
+    avoid_unnecessary_containers: false
+    file_names: false
+    no_leading_underscores_for_local_identifiers: false
+    avoid_print: false
+    prefer_interpolation_to_compose_strings: false
