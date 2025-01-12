@@ -6,7 +6,6 @@ import 'package:lottie/lottie.dart';
 import 'package:quote/controllers/quote-topic-ctl.dart';
 import 'package:quote/main.dart';
 import 'package:quote/utils/g_print.dart';
-import 'package:step_progress_indicator/step_progress_indicator.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 
 class QuoteTopicPage extends GetView<QuoteTopicController> {
@@ -18,17 +17,11 @@ class QuoteTopicPage extends GetView<QuoteTopicController> {
       child: Scaffold(
         body: Column(
           children: [
-            // Obx(
-            //   () => Padding(
-            //     padding: EdgeInsets.symmetric(horizontal: 10, vertical: 10),
-            //     child: StepProgressIndicator(
-            //       totalSteps: 3,
-            //       currentStep: controller.stepIndex.value,
-            //     ),
-            //   ),
-            // ),
             Spacer(),
-            Text('주제를 선택해주세요',style: TextStyle(fontSize: 18,fontWeight: FontWeight.w600),)
+            Text(
+              '주제를 선택해주세요',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
+            )
                 .animate(
                   onPlay: (controller) => controller.repeat(), // 애니메이션 반복 설정
                 )
@@ -73,7 +66,7 @@ class QuoteTopicPage extends GetView<QuoteTopicController> {
                               controller.topicList.indexOf(i),
                               duration: Duration(milliseconds: 300),
                               curve: Curves.easeInOut);
-                          getStorage.write('topic',i['name']);
+                          getStorage.write('topic', i['name']);
                           printCyan(controller.topicValue.value);
                         },
                         child: Obx(
@@ -98,7 +91,12 @@ class QuoteTopicPage extends GetView<QuoteTopicController> {
                                       height: 200,
                                     ),
                                     Gap(10),
-                                    Text(i['name'],style: TextStyle(fontSize: 16,fontWeight: FontWeight.w500),),
+                                    Text(
+                                      i['name'],
+                                      style: TextStyle(
+                                          fontSize: 16,
+                                          fontWeight: FontWeight.w500),
+                                    ),
                                     Gap(10)
                                   ],
                                 ),
@@ -126,7 +124,8 @@ class QuoteTopicPage extends GetView<QuoteTopicController> {
                     overlayColor: WidgetStatePropertyAll(Color(0xFF9BB1DE)),
                     backgroundColor: WidgetStatePropertyAll(Color(0xFF5D7DC5))),
                 onPressed: () {
-                  Get.toNamed('/card',arguments: {'topic': controller.topicValue.value});
+                  Get.toNamed('/card',
+                      arguments: {'topic': controller.topicValue.value});
                 },
                 child: Center(
                   child: Text(

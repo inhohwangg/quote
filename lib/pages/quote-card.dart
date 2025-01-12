@@ -8,7 +8,6 @@ import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:gap/gap.dart';
 import 'package:get/get.dart';
 import 'package:quote/controllers/quote-card-ctl.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 class QuoteCardPage extends GetView<QuoteCardController> {
   QuoteCardPage({super.key});
@@ -24,17 +23,34 @@ class QuoteCardPage extends GetView<QuoteCardController> {
             children: [
               Row(
                 children: [
-                  Text(
-                    'Title',
-                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
+                  GestureDetector(
+                    onTap: () {
+                      controller.loadInnerData();
+                    },
+                    child: Text(
+                      '오늘의 글',
+                      style:
+                          TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
+                    ),
                   ),
                   Spacer(),
-                  Icon(
-                    Icons.star,
-                    color: Colors.yellow[700],
+                  GestureDetector(
+                    onTap: () {
+                      Get.toNamed('/favorite',
+                          arguments: {'favorite': controller.favoriteQuotes});
+                    },
+                    child: Icon(
+                      Icons.star,
+                      color: Colors.yellow[700],
+                    ),
                   ),
                   Gap(20),
-                  Icon(Icons.wysiwyg),
+                  GestureDetector(
+                    onTap: () {
+                      controller.quoteGet();
+                    },
+                    child: Icon(Icons.refresh),
+                  ),
                 ],
               ),
               Spacer(),
@@ -73,8 +89,9 @@ class QuoteCardPage extends GetView<QuoteCardController> {
                                             top: 15,
                                             right: 15,
                                             child: GestureDetector(
-                                              onTap: () async{
-                                                controller.saveFavoriteQuote(item);
+                                              onTap: () async {
+                                                controller
+                                                    .saveFavoriteQuote(item);
                                               },
                                               child: Container(
                                                 width: 30,
@@ -87,7 +104,9 @@ class QuoteCardPage extends GetView<QuoteCardController> {
                                                 child: Center(
                                                   child: Icon(
                                                     Icons.star,
-                                                    color: Colors.grey,
+                                                    color: item['favorite']
+                                                        ? Colors.yellow[700]
+                                                        : Colors.grey,
                                                     size: 20,
                                                   ),
                                                 ),
@@ -103,10 +122,13 @@ class QuoteCardPage extends GetView<QuoteCardController> {
                                                   await Clipboard.setData(
                                                       ClipboardData(
                                                           text: item['quote']));
-                                                  controller.copyState[item['id']] = true;
-                                                  
-                                                  Future.delayed(Duration(seconds: 5), () {
-                                                    controller.copyState[item['id']] = false;
+                                                  controller.copyState[
+                                                      item['id']] = true;
+
+                                                  Future.delayed(
+                                                      Duration(seconds: 5), () {
+                                                    controller.copyState[
+                                                        item['id']] = false;
                                                   });
                                                 },
                                                 child: Container(
@@ -119,14 +141,23 @@ class QuoteCardPage extends GetView<QuoteCardController> {
                                                               50)),
                                                   child: Center(
                                                     child: FaIcon(
-                                                      (controller.copyState[controller.randomQuotes[index]['id']] ?? false)
+                                                      (controller.copyState[
+                                                                  controller.randomQuotes[
+                                                                          index]
+                                                                      ['id']] ??
+                                                              false)
                                                           ? FontAwesomeIcons
                                                               .solidCopy
                                                           : FontAwesomeIcons
                                                               .copy,
                                                       size: 15,
-                                                      color: (controller.copyState[controller.randomQuotes[index]['id']] ?? false)
-                                                          ? Colors.blue[700] :Colors.grey,
+                                                      color: (controller.copyState[
+                                                                  controller.randomQuotes[
+                                                                          index]
+                                                                      ['id']] ??
+                                                              false)
+                                                          ? Colors.blue[700]
+                                                          : Colors.grey,
                                                     ),
                                                   ),
                                                 ),
