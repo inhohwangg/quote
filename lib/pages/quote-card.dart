@@ -191,29 +191,36 @@ class QuoteCardPage extends GetView<QuoteCardController> {
                                           mainAxisAlignment:
                                               MainAxisAlignment.start,
                                           children: [
-                                            GestureDetector(
-                                              onTap: () {
-                                                inspect(item);
-                                              },
-                                              child: Container(
-                                                padding: EdgeInsets.symmetric(
-                                                    horizontal: 20,
-                                                    vertical: 5),
-                                                decoration: BoxDecoration(
-                                                    color: Color(0xFFD9D9D9)),
-                                                child: Text(item['author']),
+                                            Container(
+                                              padding: EdgeInsets.symmetric(
+                                                  vertical: 5),
+                                              decoration: BoxDecoration(
+                                                  // color: Color(0xFFD9D9D9),
+                                                  ),
+                                              child: Text(
+                                                item['author'],
+                                                style: TextStyle(
+                                                    fontSize: 18,
+                                                    fontWeight:
+                                                        FontWeight.w500),
                                               ),
                                             ),
                                             Gap(20),
-                                            Expanded(
-                                              child: Container(
-                                                padding: EdgeInsets.symmetric(
-                                                    horizontal: 10),
-                                                decoration: BoxDecoration(
-                                                    color: Color(0xFFD9D9D9)),
-                                                child: Center(
-                                                  child: Text(item['quote']),
-                                                ),
+                                            Container(
+                                              padding: EdgeInsets.symmetric(
+                                                  horizontal: 15, vertical: 15),
+                                              decoration: BoxDecoration(
+                                                borderRadius:
+                                                    BorderRadius.circular(10),
+                                                color: Color.fromARGB(
+                                                    255, 97, 206, 106),
+                                              ),
+                                              child: Text(
+                                                item['quote'],
+                                                style: TextStyle(
+                                                    fontSize: 16,
+                                                    fontWeight: FontWeight.w500,
+                                                    color: Colors.white),
                                               ),
                                             )
                                           ],
@@ -233,113 +240,6 @@ class QuoteCardPage extends GetView<QuoteCardController> {
                                 controller.cardDotIndex.value = index;
                               },
                             )),
-                        // child:
-                        // Container(
-                        //   child: Column(
-                        //     children: [
-                        //       Expanded(
-                        //         flex: 5,
-                        //         child: Stack(
-                        //           children: [
-                        //             Container(
-                        //               decoration: BoxDecoration(
-                        //                   color: Color(0xFFD9D9D9),
-                        //                   borderRadius: BorderRadius.only(
-                        //                       topLeft: Radius.circular(10),
-                        //                       topRight: Radius.circular(10)),
-                        //                   boxShadow: [
-                        //                     BoxShadow(
-                        //                         offset: Offset(0, 4),
-                        //                         blurRadius: 1,
-                        //                         color: Colors.grey)
-                        //                   ]),
-                        //               child: Center(
-                        //                 child: Text('이미지'),
-                        //               ),
-                        //             ),
-                        //             Positioned(
-                        //               top: 15,
-                        //               right: 15,
-                        //               child: Container(
-                        //                 width: 30,
-                        //                 height: 30,
-                        //                 decoration: BoxDecoration(
-                        //                     color: Color(0xFFA9AAB4),
-                        //                     borderRadius: BorderRadius.circular(50)),
-                        //                 child: Center(
-                        //                   child: Icon(
-                        //                     Icons.star,
-                        //                     color: Color(0xFFD9D9D9),
-                        //                     size: 20,
-                        //                   ),
-                        //                 ),
-                        //               ),
-                        //             ),
-                        //             Positioned(
-                        //               top: 55,
-                        //               right: 15,
-                        //               child: Container(
-                        //                 width: 30,
-                        //                 height: 30,
-                        //                 decoration: BoxDecoration(
-                        //                     color: Color(0xFFA9AAB4),
-                        //                     borderRadius: BorderRadius.circular(50)),
-                        //                 child: Center(
-                        //                   child: FaIcon(
-                        //                     FontAwesomeIcons.copy,
-                        //                     size: 15,
-                        //                     color: Color(0xFFD9D9D9),
-                        //                   ),
-                        //                 ),
-                        //               ),
-                        //             ),
-                        //           ],
-                        //         ),
-                        //       ),
-                        //       Expanded(
-                        //         flex: 4,
-                        //         child: Container(
-                        //           width: double.infinity,
-                        //           padding: EdgeInsets.symmetric(
-                        //               horizontal: 20, vertical: 20),
-                        //           decoration: BoxDecoration(
-                        //               color: Colors.white,
-                        //               borderRadius: BorderRadius.only(
-                        //                   bottomLeft: Radius.circular(10),
-                        //                   bottomRight: Radius.circular(10)),
-                        //               boxShadow: [
-                        //                 BoxShadow(
-                        //                     offset: Offset(0, 4),
-                        //                     blurRadius: 1,
-                        //                     color: Colors.grey)
-                        //               ]),
-                        //           child: Column(
-                        //             crossAxisAlignment: CrossAxisAlignment.start,
-                        //             children: [
-                        //               Container(
-                        //                 padding: EdgeInsets.symmetric(
-                        //                     horizontal: 20, vertical: 5),
-                        //                 decoration:
-                        //                     BoxDecoration(color: Color(0xFFD9D9D9)),
-                        //                 child: Text('author'),
-                        //               ),
-                        //               Gap(20),
-                        //               Expanded(
-                        //                 child: Container(
-                        //                   decoration:
-                        //                       BoxDecoration(color: Color(0xFFD9D9D9)),
-                        //                   child: Center(
-                        //                     child: Text('Text'),
-                        //                   ),
-                        //                 ),
-                        //               )
-                        //             ],
-                        //           ),
-                        //         ),
-                        //       )
-                        //     ],
-                        //   ),
-                        // ),
                       )
                     : Expanded(
                         child: Center(
