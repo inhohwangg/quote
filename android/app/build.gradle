@@ -10,7 +10,7 @@ plugins {
 android {
     namespace = "com.example.quote"
     compileSdk = flutter.compileSdkVersion
-    ndkVersion = flutter.ndkVersion
+    ndkVersion = "27.0.12077973"  // pinned: flutter.ndkVersion (28.x) not on CI runners
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_1_8
