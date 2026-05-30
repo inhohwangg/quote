@@ -25,45 +25,13 @@ jobs:
         with:
           channel: stable
 
-      - name: Create google-services.json placeholder
-        run: |
-          cat > android/app/google-services.json << 'EOF'
-          {
-            "project_info": {
-              "project_number": "000000000000",
-              "project_id": "placeholder-project",
-              "storage_bucket": "placeholder-project.appspot.com"
-            },
-            "client": [
-              {
-                "client_info": {
-                  "mobilesdk_app_id": "1:000000000000:android:0000000000000000000000",
-                  "android_client_info": {
-                    "package_name": "com.example.quote"
-                  }
-                },
-                "oauth_client": [],
-                "api_key": [
-                  {
-                    "current_key": "placeholder_api_key"
-                  }
-                ],
-                "services": {
-                  "appinvite_service": {
-                    "other_platform_oauth_client": []
-                  }
-                }
-              }
-            ],
-            "configuration_version": "1"
-          }
-          EOF
-
       - name: Install dependencies
         run: flutter pub get
 
       - name: Build debug APK
-        run: flutter build apk --debug
+        run: flutter build apk --debug --verbose
+        env:
+          GRADLE_OPTS: "-Dorg.gradle.logging.level=lifecycle"
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
