@@ -206,9 +206,7 @@ class _NoteSearchDelegate extends SearchDelegate<Note?> {
 
   @override
   Widget buildLeading(BuildContext context) =>
-      IconButton(icon: const Icon(Icons.arrow_back), onPressed: close);
-
-  void close() => close(context, null);
+      IconButton(icon: const Icon(Icons.arrow_back), onPressed: () => close(context, null));
 
   @override
   Widget buildResults(BuildContext context) => _results(context);
