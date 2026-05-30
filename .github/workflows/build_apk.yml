@@ -1,0 +1,108 @@
+name: Build APK
+
+on:
+  push:
+    branches:
+      - claude/samsung-notes-mvp-android-JHvBk
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+
+      - name: Accept Android SDK licenses
+        run: yes | flutter doctor --android-licenses || true
+
+      - name: Verify NDK and SDK availability
+        run: |
+          NDK_VER="27.0.12077973"
+          SDK_VER="35"
+          SDKMGR="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          if [ ! -d "$ANDROID_HOME/ndk/$NDK_VER" ]; then
+            echo "Installing NDK $NDK_VER..."
+            yes | $SDKMGR "ndk;$NDK_VER" || true
+          fi
+          if [ ! -d "$ANDROID_HOME/platforms/android-$SDK_VER" ]; then
+            echo "Installing SDK platform $SDK_VER..."
+            yes | $SDKMGR "platforms;android-$SDK_VER" || true
+          fi
+          echo "Available NDKs: $(ls $ANDROID_HOME/ndk/ 2>/dev/null || echo none)"
+          echo "Available platforms: $(ls $ANDROID_HOME/platforms/ 2>/dev/null | tail -5)"
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Build debug APK
+        run: |
+          flutter build apk --debug --verbose 2>&1 | tee /tmp/flutter_build.log
+          BUILD_EXIT=${PIPESTATUS[0]}
+          exit $BUILD_EXIT
+
+      - name: Post build log to PR on failure
+        if: failure()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python3 - <<'PYEOF'
+          import subprocess, json, urllib.request, os
+          try:
+              log = subprocess.check_output(['tail', '-n', '200', '/tmp/flutter_build.log'], text=True)
+          except Exception as e:
+              log = f'Could not read log: {e}'
+          body = f"## CI 빌드 실패 로그 (마지막 200줄)\n```\n{log[:65000]}\n```"
+          data = json.dumps({"body": body}).encode()
+          req = urllib.request.Request(
+              "https://api.github.com/repos/inhohwangg/quote/issues/1/comments",
+              data=data,
+              headers={
+                  "Authorization": f"token {os.environ['GH_TOKEN']}",
+                  "Content-Type": "application/json",
+                  "Accept": "application/vnd.github+json",
+              },
+              method="POST"
+          )
+          resp = urllib.request.urlopen(req)
+          print(f"Comment posted: HTTP {resp.status}")
+          PYEOF
+
+      - name: Upload build log artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log
+          path: /tmp/flutter_build.log
+          retention-days: 7
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: samsung-notes-mvp-debug
+          path: build/app/outputs/flutter-apk/app-debug.apk
+          retention-days: 30
+
+      - name: Build release APK (unsigned)
+        run: flutter build apk --release
+        continue-on-error: true
+
+      - name: Upload release APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: samsung-notes-mvp-release-unsigned
+          path: build/app/outputs/flutter-apk/app-release.apk
+          retention-days: 30
+        continue-on-error: true
