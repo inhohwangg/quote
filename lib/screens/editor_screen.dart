@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 
 import '../models/note.dart';
 import '../providers/notes_provider.dart';
+import '../services/pdf_export_service.dart';
 import '../widgets/drawing_canvas.dart';
 
 enum _EditorMode { text, drawing }
@@ -72,6 +73,25 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
     return true;
   }
 
+  // ---------- PDF export ----------
+
+  Future<void> _exportPdf() async {
+    await _save(); // Persist latest edits before exporting.
+    try {
+      await PdfExportService.export(
+        title: _titleCtrl.text,
+        content: _contentCtrl.text,
+        drawingJson: _drawingJson,
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('PDF 내보내기 실패: $e')),
+        );
+      }
+    }
+  }
+
   // ---------- UI helpers ----------
 
   void _toggleMode() {
@@ -126,7 +146,13 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
           tooltip: _mode == _EditorMode.text ? '드로잉 모드' : '텍스트 모드',
           onPressed: _toggleMode,
         ),
-        // Save indicator / manual save
+        // PDF export & share
+        IconButton(
+          icon: const Icon(Icons.picture_as_pdf_outlined),
+          tooltip: 'PDF로 내보내기',
+          onPressed: _exportPdf,
+        ),
+        // Manual save
         IconButton(
           icon: const Icon(Icons.save_outlined),
           tooltip: '저장',

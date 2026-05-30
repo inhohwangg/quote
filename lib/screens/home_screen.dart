@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 
 import '../models/note.dart';
 import '../providers/notes_provider.dart';
+import '../widgets/banner_ad_widget.dart';
 import '../widgets/note_card.dart';
 
 class HomeScreen extends ConsumerWidget {
@@ -17,14 +18,20 @@ class HomeScreen extends ConsumerWidget {
       appBar: AppBar(
         title: const Text('메모'),
         actions: [
-          // Optional: search placeholder for future extension
           IconButton(
             icon: const Icon(Icons.search),
             tooltip: '검색',
             onPressed: () => _showSearch(context, ref, notes),
           ),
+          IconButton(
+            icon: const Icon(Icons.settings_outlined),
+            tooltip: '설정',
+            onPressed: () => context.push('/settings'),
+          ),
         ],
       ),
+      // BannerAdWidget collapses to SizedBox.shrink() when premium or not loaded.
+      bottomNavigationBar: const BannerAdWidget(),
       body: notes.isEmpty
           ? const _EmptyState()
           : _ResponsiveNoteList(notes: notes, ref: ref),

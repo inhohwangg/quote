@@ -68,6 +68,15 @@ class NotesNotifier extends StateNotifier<List<Note>> {
     _load();
   }
 
+  /// Upsert a list of notes from a Drive restore operation.
+  /// Creates notes that don't exist locally; updates those that do.
+  Future<void> restoreFromBackup(List<Note> notes) async {
+    for (final note in notes) {
+      await _box.put(note.id, note);
+    }
+    _load();
+  }
+
   Note? getNote(String id) => _box.get(id);
 }
 

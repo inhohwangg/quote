@@ -3,6 +3,7 @@ import '../screens/splash_screen.dart';
 import '../screens/onboarding_screen.dart';
 import '../screens/home_screen.dart';
 import '../screens/editor_screen.dart';
+import '../screens/settings_screen.dart';
 
 final appRouter = GoRouter(
   initialLocation: '/splash',
@@ -27,6 +28,10 @@ final appRouter = GoRouter(
         final noteId = state.uri.queryParameters['noteId'];
         return EditorScreen(noteId: noteId);
       },
+    ),
+    GoRoute(
+      path: '/settings',
+      builder: (context, state) => const SettingsScreen(),
     ),
   ],
 );

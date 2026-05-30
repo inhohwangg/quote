@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:google_mobile_ads/google_mobile_ads.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -11,14 +12,18 @@ import 'router/app_router.dart';
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Lock to portrait on phones; tablets will handle landscape naturally.
+  // Lock to portrait on phones; tablets handle landscape naturally.
   await SystemChrome.setPreferredOrientations([
     DeviceOrientation.portraitUp,
     DeviceOrientation.landscapeLeft,
     DeviceOrientation.landscapeRight,
   ]);
 
-  // Hive init – registers the NoteAdapter before any box is opened.
+  // AdMob SDK init — must complete before any ad is requested.
+  // Fire-and-forget: we don't block app startup on ad readiness.
+  MobileAds.instance.initialize();
+
+  // Hive init — registers the NoteAdapter before any box is opened.
   await Hive.initFlutter();
   Hive.registerAdapter(NoteAdapter());
 
