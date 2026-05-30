@@ -24,7 +24,6 @@ jobs:
         uses: subosito/flutter-action@v2
         with:
           channel: stable
-          cache: true
 
       - name: Accept Android SDK licenses
         run: yes | flutter doctor --android-licenses || true
@@ -35,11 +34,16 @@ jobs:
       - name: Install dependencies
         run: flutter pub get
 
-      - name: Show local.properties
-        run: cat android/local.properties || echo "local.properties not found"
-
-      - name: Build debug APK (capture log)
-        run: flutter build apk --debug --verbose 2>&1 | tee /tmp/flutter_build.log; exit ${PIPESTATUS[0]}
+      - name: Build debug APK
+        run: |
+          flutter build apk --debug --verbose 2>&1 | tee /tmp/flutter_build.log
+          BUILD_EXIT=${PIPESTATUS[0]}
+          if [ $BUILD_EXIT -ne 0 ]; then
+            echo "::group::Build failure — last 150 lines"
+            tail -150 /tmp/flutter_build.log
+            echo "::endgroup::"
+          fi
+          exit $BUILD_EXIT
 
       - name: Upload build log
         if: always()
