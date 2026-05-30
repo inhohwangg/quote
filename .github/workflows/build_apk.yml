@@ -23,21 +23,31 @@ jobs:
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.29.3'
           channel: stable
           cache: true
 
       - name: Accept Android SDK licenses
         run: yes | flutter doctor --android-licenses || true
 
-      - name: Flutter doctor (environment info)
+      - name: Flutter doctor
         run: flutter doctor -v
 
       - name: Install dependencies
         run: flutter pub get
 
-      - name: Build debug APK
-        run: flutter build apk --debug --verbose
+      - name: Show local.properties
+        run: cat android/local.properties || echo "local.properties not found"
+
+      - name: Build debug APK (capture log)
+        run: flutter build apk --debug --verbose 2>&1 | tee /tmp/flutter_build.log; exit ${PIPESTATUS[0]}
+
+      - name: Upload build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log
+          path: /tmp/flutter_build.log
+          retention-days: 7
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
