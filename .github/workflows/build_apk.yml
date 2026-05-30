@@ -28,6 +28,21 @@ jobs:
       - name: Accept Android SDK licenses
         run: yes | flutter doctor --android-licenses || true
 
+      - name: Detect and install required NDK
+        run: |
+          # Flutter embeds the required NDK version in FlutterExtension.kt
+          REQUIRED_NDK=$(grep -oP '(?<=")\d+\.\d+\.\d+(?=")' \
+            "$FLUTTER_ROOT/packages/flutter_tools/gradle/src/main/kotlin/FlutterExtension.kt" \
+            2>/dev/null | head -1 || echo "27.0.12077973")
+          echo "Flutter requires NDK: $REQUIRED_NDK"
+          echo "Installed NDKs: $(ls $ANDROID_HOME/ndk/ 2>/dev/null || echo 'none')"
+          if [ ! -d "$ANDROID_HOME/ndk/$REQUIRED_NDK" ]; then
+            echo "Installing NDK $REQUIRED_NDK via sdkmanager..."
+            yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager "ndk;$REQUIRED_NDK" 2>&1 | tail -5
+          else
+            echo "NDK $REQUIRED_NDK already installed."
+          fi
+
       - name: Flutter doctor
         run: flutter doctor -v
 
