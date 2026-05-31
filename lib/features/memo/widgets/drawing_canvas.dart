@@ -104,7 +104,9 @@ class _StrokePainter extends CustomPainter {
       canvas.drawPath(path, paint);
     }
 
-    for (final stroke in strokes) drawStroke(stroke);
+    for (final stroke in strokes) {
+      drawStroke(stroke);
+    }
     drawStroke(currentStroke);
   }
 
