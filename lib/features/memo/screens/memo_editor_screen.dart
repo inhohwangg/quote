@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
@@ -37,10 +38,15 @@ enum _EditorMode { text, pen, eraser }
 // 상수
 // ════════════════════════════════════════════════════════════════════════════
 
-const _kLineSpacing  = 32.0;
-const _kMarginLeft   = 56.0;
-const _kEraserRadius = 24.0;
-const _kAccent       = Color(0xFF4A90D9);
+const _kLineSpacing   = 32.0;
+const _kMarginLeft    = 56.0;
+const _kEraserRadius  = 24.0;
+const _kAccent        = Color(0xFF4A90D9);
+const _kHoldMs        = 500;   // 직선 보정 홀드 임계값(ms)
+const _kHoldMoveThr   = 3.0;   // 홀드 판정 최소 이동 임계값(px)
+const _kPenWidthMin   = 1.0;
+const _kPenWidthMax   = 20.0;
+const _kPenWidthInit  = 4.0;
 
 const _kColors = [
   Color(0xFF1A1A2E),
@@ -50,8 +56,6 @@ const _kColors = [
   Color(0xFFD97706),
   Color(0xFF7C3AED),
 ];
-
-const _kWidths = [2.0, 4.0, 7.0, 12.0];
 
 // ════════════════════════════════════════════════════════════════════════════
 // MemoEditorScreen
@@ -66,28 +70,36 @@ class MemoEditorScreen extends ConsumerStatefulWidget {
 }
 
 class _MemoEditorScreenState extends ConsumerState<MemoEditorScreen> {
-  // ── 컨트롤러 ──────────────────────────────────────────────────────────────
+  // ── 텍스트 컨트롤러 ────────────────────────────────────────────────────────
   final _titleCtrl  = TextEditingController();
   final _bodyCtrl   = TextEditingController();
   final _titleFocus = FocusNode();
   final _bodyFocus  = FocusNode();
   final _drawingKey = GlobalKey();
 
-  // ── 메모 데이터 ──────────────────────────────────────────────────────────────
+  // ── 메모 데이터 ─────────────────────────────────────────────────────────────
   MemoModel?   _memo;
   List<String> _imagePaths = [];
   String?      _drawingPath;
   ui.Image?    _baseImage;
 
-  // ── 드로잉 상태 ──────────────────────────────────────────────────────────────
-  _EditorMode    _mode     = _EditorMode.text;
-  Color          _penColor = _kColors.first;
-  double         _penWidth = _kWidths[1];
-  final List<Stroke> _strokes = [];
-  List<Offset>?  _livePts;
-  Offset?        _eraserPos;
+  // ── 드로잉 기본 상태 ─────────────────────────────────────────────────────────
+  _EditorMode _mode     = _EditorMode.text;
+  Color       _penColor = _kColors.first;
+  double      _penWidth = _kPenWidthInit;
 
-  // Bug #1 Fix: strokes 있거나 드로잉 모드이면 hint 숨김
+  final List<Stroke> _strokes = [];
+  List<Offset>? _livePts;   // 현재 그리는 중인 점들
+  Offset?       _eraserPos; // 지우개 커서
+
+  // ── 직선 자동 보정 상태 ─────────────────────────────────────────────────────
+  Timer? _holdTimer;  // 홀드 감지 타이머
+  bool   _isHolding = false; // true이면 직선 보정 완료 상태 (시각 피드백용)
+
+  // ── 두께 슬라이더 팝업 ─────────────────────────────────────────────────────
+  bool _showWidthSlider = false;
+
+  // hint 표시 조건: 드로잉 모드이거나 strokes 있으면 숨김
   bool get _showHint => _strokes.isEmpty && _mode == _EditorMode.text;
 
   // ══════════════════════════════════════════════════════════════════════════
@@ -112,6 +124,7 @@ class _MemoEditorScreenState extends ConsumerState<MemoEditorScreen> {
 
   @override
   void dispose() {
+    _holdTimer?.cancel(); // Timer 반드시 해제
     _titleCtrl.dispose();
     _bodyCtrl.dispose();
     _titleFocus.dispose();
@@ -132,11 +145,29 @@ class _MemoEditorScreenState extends ConsumerState<MemoEditorScreen> {
     if (mounted) setState(() => _baseImage = frame.image);
   }
 
-  // ── 터치 이벤트 ──────────────────────────────────────────────────────────────
+  // ── 직선 자동 보정 적용 ──────────────────────────────────────────────────────
+  // Timer 발화 시 현재 획의 점들을 [시작점, 끝점] 두 개로 단순화
+  void _applyAutoStraight() {
+    if (!mounted) return;
+    if (_livePts == null || _livePts!.length < 2) return;
+    setState(() {
+      _livePts  = [_livePts!.first, _livePts!.last]; // ← 직선 단순화
+      _isHolding = true; // 시각 피드백 플래그
+    });
+  }
+
+  // ── 터치 이벤트 ─────────────────────────────────────────────────────────────
 
   void _onPanStart(DragStartDetails d) {
     if (_mode == _EditorMode.pen) {
-      setState(() => _livePts = [d.localPosition]);
+      // 새 획 시작: 기존 타이머 정리 + 슬라이더 팝업 닫기
+      _holdTimer?.cancel();
+      _holdTimer = null;
+      setState(() {
+        _livePts          = [d.localPosition];
+        _isHolding        = false;
+        _showWidthSlider  = false; // 드로잉 시작 시 팝업 닫기
+      });
     } else if (_mode == _EditorMode.eraser) {
       _eraseStrokesAt(d.localPosition);
       setState(() => _eraserPos = d.localPosition);
@@ -146,28 +177,64 @@ class _MemoEditorScreenState extends ConsumerState<MemoEditorScreen> {
   void _onPanUpdate(DragUpdateDetails d) {
     if (_mode == _EditorMode.pen) {
       _livePts?.add(d.localPosition);
+
+      // ──────────────────────────────────────────────────────────────────────
+      // 직선 자동 보정 홀드 감지 알고리즘
+      //
+      // 원리:
+      //   이동량 < _kHoldMoveThr px → 정지 상태 → 타이머 시작(최초 1회)
+      //   이동량 ≥ _kHoldMoveThr px → 움직임 → 타이머 취소
+      //   타이머 발화(_kHoldMs ms) → _applyAutoStraight() 호출 → 직선 변환
+      //
+      // 성능:
+      //   `_holdTimer ??=` 연산자로 중복 Timer 생성 방지 (구형 기기 대응)
+      // ──────────────────────────────────────────────────────────────────────
+      if (d.delta.distance < _kHoldMoveThr) {
+        // 정지: 이미 타이머가 없는 경우에만 생성 (중복 방지)
+        _holdTimer ??= Timer(
+          const Duration(milliseconds: _kHoldMs),
+          _applyAutoStraight,
+        );
+      } else {
+        // 움직임: 타이머 취소 + 홀드 상태 해제
+        if (_holdTimer != null) {
+          _holdTimer!.cancel();
+          _holdTimer = null;
+        }
+        if (_isHolding) setState(() => _isHolding = false);
+      }
+
       setState(() {});
     } else if (_mode == _EditorMode.eraser) {
+      // 획 지우개: 홀드 타이머와 완전히 독립 (충돌 없음)
       _eraseStrokesAt(d.localPosition);
       setState(() => _eraserPos = d.localPosition);
     }
   }
 
   void _onPanEnd(DragEndDetails _) {
+    // 손을 뗄 때 타이머 무조건 정리 (메모리 누수 방지)
+    _holdTimer?.cancel();
+    _holdTimer = null;
+
     if (_mode == _EditorMode.pen && _livePts != null) {
       if (_livePts!.length >= 2) {
         _strokes.add(Stroke(
-          points: List.from(_livePts!),
-          color: _penColor,
-          width: _penWidth,
+          points: List.from(_livePts!), // 직선 보정 시에도 동일하게 저장
+          color:  _penColor,
+          width:  _penWidth,
         ));
       }
       _livePts = null;
     }
-    setState(() => _eraserPos = null);
+
+    setState(() {
+      _eraserPos = null;
+      _isHolding = false;
+    });
   }
 
-  // Stroke Eraser Algorithm: 반경 내 교차 획 전체 제거
+  // Stroke Eraser: 반경 내 교차 획 전체 제거
   void _eraseStrokesAt(Offset pos) {
     final before = _strokes.length;
     _strokes.removeWhere(
@@ -228,8 +295,7 @@ class _MemoEditorScreenState extends ConsumerState<MemoEditorScreen> {
         title: const Text('메모 삭제'),
         content: const Text('이 메모를 삭제하시겠습니까?'),
         actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
+          TextButton(onPressed: () => Navigator.pop(ctx, false),
               child: const Text('취소')),
           TextButton(
             onPressed: () => Navigator.pop(ctx, true),
@@ -267,9 +333,7 @@ class _MemoEditorScreenState extends ConsumerState<MemoEditorScreen> {
         title: const Text('그림 전체 지우기'),
         content: const Text('캔버스의 모든 획이 삭제됩니다.'),
         actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(ctx),
-              child: const Text('취소')),
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('취소')),
           TextButton(
             onPressed: () {
               Navigator.pop(ctx);
@@ -295,19 +359,22 @@ class _MemoEditorScreenState extends ConsumerState<MemoEditorScreen> {
   @override
   Widget build(BuildContext context) {
     final isDrawing = _mode != _EditorMode.text;
-    final cs = Theme.of(context).colorScheme;
+    final cs     = Theme.of(context).colorScheme;
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
     return Scaffold(
-      // 배경색은 테마에서 자동 적용 (다크/라이트)
       appBar: _buildAppBar(cs),
       body: Column(
         children: [
+          // 드로잉 툴바
           _buildToolbar(cs, isDark),
+          // 두께 슬라이더 팝업 (툴바 바로 아래, 애니메이션 슬라이드)
+          _buildWidthSliderPopup(cs, isDark),
+
           Expanded(
             child: Stack(
               children: [
-                // Layer 1: 줄 노트 배경 (다크 모드 대응)
+                // Layer 1: 줄 노트 배경
                 Positioned.fill(
                   child: RepaintBoundary(
                     child: CustomPaint(
@@ -316,7 +383,7 @@ class _MemoEditorScreenState extends ConsumerState<MemoEditorScreen> {
                   ),
                 ),
 
-                // Layer 2: 제목 + 본문 텍스트 영역
+                // Layer 2: 텍스트 영역
                 AbsorbPointer(
                   absorbing: isDrawing,
                   child: SingleChildScrollView(
@@ -328,16 +395,13 @@ class _MemoEditorScreenState extends ConsumerState<MemoEditorScreen> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        // ── 제목 입력 필드 ───────────────────────────────
-                        // "새 메모" 고정 타이틀 폐기 → 이 필드가 실제 제목
+                        // 제목 입력
                         TextField(
                           controller: _titleCtrl,
                           focusNode: _titleFocus,
                           style: TextStyle(
-                            fontSize: 22,
-                            fontWeight: FontWeight.w700,
-                            height: 1.45,
-                            letterSpacing: -0.3,
+                            fontSize: 22, fontWeight: FontWeight.w700,
+                            height: 1.45, letterSpacing: -0.3,
                             color: cs.onSurface,
                           ),
                           decoration: InputDecoration(
@@ -351,22 +415,17 @@ class _MemoEditorScreenState extends ConsumerState<MemoEditorScreen> {
                           textInputAction: TextInputAction.next,
                           onSubmitted: (_) => _bodyFocus.requestFocus(),
                         ),
-
-                        // 제목-본문 구분선 (삼성 노트 스타일)
                         Divider(
-                          height: 1,
-                          thickness: 0.8,
+                          height: 1, thickness: 0.8,
                           color: cs.onSurface.withValues(alpha: 0.1),
                         ),
                         const SizedBox(height: 4),
-
-                        // ── 본문 입력 필드 ───────────────────────────────
+                        // 본문 입력
                         TextField(
                           controller: _bodyCtrl,
                           focusNode: _bodyFocus,
                           style: TextStyle(
-                            fontSize: 16,
-                            height: 2.0,
+                            fontSize: 16, height: 2.0,
                             color: cs.onSurface.withValues(alpha: 0.85),
                           ),
                           decoration: InputDecoration(
@@ -378,15 +437,13 @@ class _MemoEditorScreenState extends ConsumerState<MemoEditorScreen> {
                           ),
                           maxLines: null,
                         ),
-
-                        // 이미지 첨부
                         if (_imagePaths.isNotEmpty) ...[
                           const SizedBox(height: 16),
                           ..._imagePaths.map((path) => _ImageAttachment(
                             path: path,
                             onRemove: () => setState(() =>
-                              _imagePaths =
-                                  _imagePaths.where((p) => p != path).toList()),
+                              _imagePaths = _imagePaths
+                                  .where((p) => p != path).toList()),
                           )),
                         ],
                       ],
@@ -394,7 +451,7 @@ class _MemoEditorScreenState extends ConsumerState<MemoEditorScreen> {
                   ),
                 ),
 
-                // Layer 3: 드로잉 캔버스 (투명 배경)
+                // Layer 3: 드로잉 캔버스
                 Positioned.fill(
                   child: IgnorePointer(
                     ignoring: !isDrawing,
@@ -413,6 +470,7 @@ class _MemoEditorScreenState extends ConsumerState<MemoEditorScreen> {
                             liveWidth: _penWidth,
                             eraserPos: _eraserPos,
                             isEraser:  _mode == _EditorMode.eraser,
+                            isHolding: _isHolding, // 직선 보정 피드백
                             baseImage: _baseImage,
                           ),
                         ),
@@ -429,7 +487,7 @@ class _MemoEditorScreenState extends ConsumerState<MemoEditorScreen> {
   }
 
   // ══════════════════════════════════════════════════════════════════════════
-  // AppBar — 동적 제목 (고정 "새 메모" 제거, _titleCtrl에서 실시간 반영)
+  // AppBar
   // ══════════════════════════════════════════════════════════════════════════
 
   AppBar _buildAppBar(ColorScheme cs) => AppBar(
@@ -437,18 +495,15 @@ class _MemoEditorScreenState extends ConsumerState<MemoEditorScreen> {
       icon: const Icon(Icons.arrow_back_ios_new_rounded, size: 20),
       onPressed: () => context.go('/home'),
     ),
-    // 제목 필드 텍스트를 AppBar에도 실시간 미러링
     title: ListenableBuilder(
       listenable: _titleCtrl,
       builder: (_, __) {
         final t = _titleCtrl.text.trim();
         return Text(
           t.isEmpty ? '새 메모' : t,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
+          maxLines: 1, overflow: TextOverflow.ellipsis,
           style: TextStyle(
-            fontSize: 15,
-            fontWeight: FontWeight.w600,
+            fontSize: 15, fontWeight: FontWeight.w600,
             color: cs.onSurface,
           ),
         );
@@ -487,9 +542,106 @@ class _MemoEditorScreenState extends ConsumerState<MemoEditorScreen> {
   );
 
   // ══════════════════════════════════════════════════════════════════════════
+  // 두께 슬라이더 팝업
+  // 툴바 아래에서 AnimatedContainer로 부드럽게 슬라이드
+  // ══════════════════════════════════════════════════════════════════════════
+
+  Widget _buildWidthSliderPopup(ColorScheme cs, bool isDark) {
+    final show = _showWidthSlider && _mode == _EditorMode.pen;
+    final bg   = isDark ? const Color(0xFF252535) : const Color(0xFFF0F3FA);
+
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 220),
+      curve: Curves.easeOutCubic,
+      height: show ? 64 : 0,
+      color: bg,
+      // SingleChildScrollView로 height 0일 때 자식 렌더 에러 방지
+      child: SingleChildScrollView(
+        physics: const NeverScrollableScrollPhysics(),
+        child: SizedBox(
+          height: 64,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Row(
+              children: [
+                // 최소 두께 프리뷰
+                Container(
+                  width: 6, height: 6,
+                  decoration: BoxDecoration(
+                    color: _penColor, shape: BoxShape.circle,
+                  ),
+                ),
+                const SizedBox(width: 10),
+
+                // 슬라이더 (현재 펜 색상 적용)
+                Expanded(
+                  child: SliderTheme(
+                    data: SliderTheme.of(context).copyWith(
+                      trackHeight: 2.5,
+                      thumbShape: const RoundSliderThumbShape(
+                          enabledThumbRadius: 11),
+                      activeTrackColor: _penColor,
+                      inactiveTrackColor:
+                          _penColor.withValues(alpha: 0.2),
+                      thumbColor: _penColor,
+                      overlayColor: _penColor.withValues(alpha: 0.12),
+                      overlayShape:
+                          const RoundSliderOverlayShape(overlayRadius: 18),
+                    ),
+                    child: Slider(
+                      value: _penWidth,
+                      min: _kPenWidthMin,
+                      max: _kPenWidthMax,
+                      onChanged: (v) => setState(() => _penWidth = v),
+                    ),
+                  ),
+                ),
+
+                const SizedBox(width: 10),
+                // 최대 두께 프리뷰
+                Container(
+                  width: 24, height: 24,
+                  decoration: BoxDecoration(
+                    color: _penColor, shape: BoxShape.circle,
+                  ),
+                ),
+                const SizedBox(width: 10),
+
+                // 현재 수치 레이블
+                SizedBox(
+                  width: 42,
+                  child: RichText(
+                    text: TextSpan(
+                      children: [
+                        TextSpan(
+                          text: '${_penWidth.round()}',
+                          style: TextStyle(
+                            fontSize: 14, fontWeight: FontWeight.w700,
+                            color: cs.onSurface,
+                          ),
+                        ),
+                        TextSpan(
+                          text: 'px',
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: cs.onSurface.withValues(alpha: 0.45),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  // ══════════════════════════════════════════════════════════════════════════
   // 드로잉 툴바
-  // Overflow Fix: 전체 Row를 SingleChildScrollView(horizontal)로 래핑
-  // Expanded 제거 → 자연 너비로 배치, 화면 좁아도 스크롤로 접근 가능
+  // Overflow Fix: SingleChildScrollView(horizontal) + BouncingScrollPhysics
   // ══════════════════════════════════════════════════════════════════════════
 
   Widget _buildToolbar(ColorScheme cs, bool isDark) {
@@ -505,34 +657,33 @@ class _MemoEditorScreenState extends ConsumerState<MemoEditorScreen> {
         boxShadow: [
           BoxShadow(
             color: Colors.black.withValues(alpha: 0.04),
-            blurRadius: 4,
-            offset: const Offset(0, 2),
+            blurRadius: 4, offset: const Offset(0, 2),
           ),
         ],
       ),
       child: SingleChildScrollView(
-        // Overflow Fix: BouncingScrollPhysics로 부드러운 가로 스크롤
         scrollDirection: Axis.horizontal,
         physics: const BouncingScrollPhysics(),
         padding: const EdgeInsets.symmetric(horizontal: 4),
         child: Row(
           children: [
-            // ── 모드 버튼 (항상 표시) ─────────────────────────────────────
+            // ── 모드 버튼 ───────────────────────────────────────────────
             _ModeBtn(
               icon: Icons.text_fields_rounded, label: 'Aa',
               active: _mode == _EditorMode.text,
-              activeColor: _kAccent,
-              inactiveColor: inactiveColor,
+              activeColor: _kAccent, inactiveColor: inactiveColor,
               onTap: () {
-                setState(() => _mode = _EditorMode.text);
+                setState(() {
+                  _mode = _EditorMode.text;
+                  _showWidthSlider = false;
+                });
                 _bodyFocus.requestFocus();
               },
             ),
             _ModeBtn(
               icon: Icons.draw_rounded, label: '펜',
               active: _mode == _EditorMode.pen,
-              activeColor: _penColor,
-              inactiveColor: inactiveColor,
+              activeColor: _penColor, inactiveColor: inactiveColor,
               onTap: () {
                 setState(() => _mode = _EditorMode.pen);
                 FocusScope.of(context).unfocus();
@@ -541,17 +692,22 @@ class _MemoEditorScreenState extends ConsumerState<MemoEditorScreen> {
             _ModeBtn(
               icon: Icons.auto_fix_normal_rounded, label: '지우개',
               active: _mode == _EditorMode.eraser,
-              activeColor: _kAccent,
-              inactiveColor: inactiveColor,
+              activeColor: _kAccent, inactiveColor: inactiveColor,
               onTap: () {
-                setState(() { _mode = _EditorMode.eraser; _livePts = null; });
+                setState(() {
+                  _mode = _EditorMode.eraser;
+                  _livePts = null;
+                  _showWidthSlider = false;
+                  _holdTimer?.cancel();
+                  _holdTimer = null;
+                });
                 FocusScope.of(context).unfocus();
               },
             ),
 
             _vDiv(borderColor),
 
-            // ── 모드별 서브 툴바 (Expanded 없이 자연 너비) ─────────────────
+            // ── 모드별 서브 툴 ──────────────────────────────────────────
             if (_mode == _EditorMode.pen) ...[
               // 색상 팔레트
               ..._kColors.map((c) => _ColorDot(
@@ -559,13 +715,18 @@ class _MemoEditorScreenState extends ConsumerState<MemoEditorScreen> {
                 onTap: () => setState(() => _penColor = c),
               )),
               _vDiv(borderColor),
-              // 두께 선택
-              ..._kWidths.map((w) => _WidthDot(
-                width: w, color: _penColor, selected: _penWidth == w,
-                onTap: () => setState(() => _penWidth = w),
-              )),
+
+              // ── 펜촉 프리뷰 버튼 (두께 조절 팝업 토글) ─────────────────
+              // 현재 색상 + 두께가 실시간 반영된 원형 아이콘
+              // 최소 터치 영역 48×48 보장
+              _PenNibButton(
+                color: _penColor,
+                width: _penWidth,
+                isPopupOpen: _showWidthSlider,
+                onTap: () => setState(
+                    () => _showWidthSlider = !_showWidthSlider),
+              ),
             ] else if (_mode == _EditorMode.eraser) ...[
-              // 지우개 안내 텍스트 (Expanded 제거 → 스크롤로 해결)
               Icon(Icons.radio_button_unchecked_rounded,
                   size: 18, color: inactiveColor),
               const SizedBox(width: 6),
@@ -575,9 +736,30 @@ class _MemoEditorScreenState extends ConsumerState<MemoEditorScreen> {
               ),
             ],
 
-            // ── 전체 지우기 (드로잉 모드 한정) ───────────────────────────
+            // ── 직선 자동 보정 상태 표시 (홀드 중) ──────────────────────
+            if (_isHolding) ...[
+              _vDiv(borderColor),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 6),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.straighten_rounded,
+                        size: 15, color: _kAccent),
+                    const SizedBox(width: 4),
+                    Text('직선 보정됨',
+                        style: const TextStyle(
+                          fontSize: 11, fontWeight: FontWeight.w600,
+                          color: _kAccent,
+                        )),
+                  ],
+                ),
+              ),
+            ],
+
+            // ── 전체 지우기 ─────────────────────────────────────────────
             if (_mode != _EditorMode.text) ...[
-              const SizedBox(width: 8),
+              const SizedBox(width: 4),
               _vDiv(borderColor),
               IconButton(
                 icon: Icon(Icons.layers_clear_rounded,
@@ -600,24 +782,80 @@ class _MemoEditorScreenState extends ConsumerState<MemoEditorScreen> {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
+// 펜촉 프리뷰 버튼
+// - 현재 펜 색상 + 두께를 원형으로 실시간 표시
+// - 최소 터치 영역 48×48 보장 (모바일 가이드라인)
+// - 팝업 열림 시 테두리로 활성 상태 표시
+// ════════════════════════════════════════════════════════════════════════════
+
+class _PenNibButton extends StatelessWidget {
+  final Color  color;
+  final double width;
+  final bool   isPopupOpen;
+  final VoidCallback onTap;
+
+  const _PenNibButton({
+    required this.color,
+    required this.width,
+    required this.isPopupOpen,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    // 원 크기: 두께 1~20px → 표시 8~38px 범위로 매핑
+    final previewSize = (width * 1.8 + 6).clamp(8.0, 38.0);
+
+    return GestureDetector(
+      onTap: onTap,
+      child: SizedBox(
+        width:  48, // 최소 터치 영역 48×48
+        height: 48,
+        child: Center(
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 200),
+            width:  previewSize,
+            height: previewSize,
+            decoration: BoxDecoration(
+              color: color,
+              shape: BoxShape.circle,
+              // 팝업 열림: 강조 테두리 + 강한 그림자
+              border: isPopupOpen
+                  ? Border.all(color: const Color(0xFF4A90D9), width: 2.5)
+                  : Border.all(
+                      color: color.withValues(alpha: 0.25), width: 1),
+              boxShadow: [
+                BoxShadow(
+                  color: color.withValues(
+                      alpha: isPopupOpen ? 0.55 : 0.22),
+                  blurRadius: isPopupOpen ? 10 : 5,
+                  spreadRadius: isPopupOpen ? 1 : 0,
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ════════════════════════════════════════════════════════════════════════════
 // 툴바 서브 위젯
 // ════════════════════════════════════════════════════════════════════════════
 
 class _ModeBtn extends StatelessWidget {
-  final IconData  icon;
-  final String    label;
-  final bool      active;
-  final Color     activeColor;
-  final Color     inactiveColor;
+  final IconData icon;
+  final String   label;
+  final bool     active;
+  final Color    activeColor;
+  final Color    inactiveColor;
   final VoidCallback onTap;
 
   const _ModeBtn({
-    required this.icon,
-    required this.label,
-    required this.active,
-    required this.activeColor,
-    required this.inactiveColor,
-    required this.onTap,
+    required this.icon, required this.label,
+    required this.active, required this.activeColor,
+    required this.inactiveColor, required this.onTap,
   });
 
   @override
@@ -655,7 +893,8 @@ class _ColorDot extends StatelessWidget {
   final bool  selected;
   final VoidCallback onTap;
 
-  const _ColorDot({required this.color, required this.selected, required this.onTap});
+  const _ColorDot({required this.color, required this.selected,
+      required this.onTap});
 
   @override
   Widget build(BuildContext context) => GestureDetector(
@@ -679,39 +918,6 @@ class _ColorDot extends StatelessWidget {
   );
 }
 
-class _WidthDot extends StatelessWidget {
-  final double width;
-  final Color  color;
-  final bool   selected;
-  final VoidCallback onTap;
-
-  const _WidthDot({
-    required this.width, required this.color,
-    required this.selected, required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final size = (width * 1.6 + 2).clamp(8.0, 22.0);
-    return GestureDetector(
-      onTap: onTap,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 150),
-        margin: const EdgeInsets.symmetric(horizontal: 4),
-        width: size, height: size,
-        decoration: BoxDecoration(
-          color: selected ? color : Colors.grey.shade400,
-          shape: BoxShape.circle,
-          boxShadow: selected
-              ? [BoxShadow(
-                  color: color.withValues(alpha: 0.35), blurRadius: 4)]
-              : null,
-        ),
-      ),
-    );
-  }
-}
-
 // ════════════════════════════════════════════════════════════════════════════
 // 이미지 첨부 위젯
 // ════════════════════════════════════════════════════════════════════════════
@@ -729,7 +935,8 @@ class _ImageAttachment extends StatelessWidget {
       borderRadius: BorderRadius.circular(10),
       child: Stack(
         children: [
-          Image.file(File(path), width: double.infinity, fit: BoxFit.fitWidth),
+          Image.file(File(path), width: double.infinity,
+              fit: BoxFit.fitWidth),
           Positioned(
             top: 8, right: 8,
             child: GestureDetector(
@@ -739,7 +946,8 @@ class _ImageAttachment extends StatelessWidget {
                 decoration: const BoxDecoration(
                   color: Colors.black54, shape: BoxShape.circle,
                 ),
-                child: const Icon(Icons.close, color: Colors.white, size: 16),
+                child: const Icon(Icons.close,
+                    color: Colors.white, size: 16),
               ),
             ),
           ),
@@ -755,10 +963,8 @@ class _ImageAttachment extends StatelessWidget {
 
 class _LinedPaperPainter extends CustomPainter {
   final bool isDark;
-
   const _LinedPaperPainter({this.isDark = false});
 
-  // 다크 모드별 색상 정의
   Color get _bg     => isDark ? const Color(0xFF1C1C28) : Colors.white;
   Color get _line   => isDark ? const Color(0xFF2A2A3E) : const Color(0xFFE3EAF5);
   Color get _margin => isDark ? const Color(0xFF3D2030) : const Color(0xFFFFCDD2);
@@ -766,14 +972,12 @@ class _LinedPaperPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     canvas.drawRect(Offset.zero & size, Paint()..color = _bg);
-
     final linePaint = Paint()..color = _line..strokeWidth = 0.9;
     var y = _kLineSpacing;
     while (y < size.height) {
       canvas.drawLine(Offset(0, y), Offset(size.width, y), linePaint);
       y += _kLineSpacing;
     }
-
     canvas.drawLine(
       Offset(_kMarginLeft - 10, 0),
       Offset(_kMarginLeft - 10, size.height),
@@ -786,7 +990,10 @@ class _LinedPaperPainter extends CustomPainter {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-// Layer 3 — 드로잉 Painter (완전 투명 배경 유지)
+// Layer 3 — 드로잉 Painter
+//
+// isHolding = true 일 때 (직선 보정 완료):
+//   현재 획 주위에 은은한 글로우를 추가해 시각적 피드백 제공
 // ════════════════════════════════════════════════════════════════════════════
 
 class _DrawingPainter extends CustomPainter {
@@ -796,6 +1003,7 @@ class _DrawingPainter extends CustomPainter {
   final double  liveWidth;
   final Offset? eraserPos;
   final bool    isEraser;
+  final bool    isHolding; // 직선 보정 완료 여부
   final ui.Image? baseImage;
 
   const _DrawingPainter({
@@ -805,6 +1013,7 @@ class _DrawingPainter extends CustomPainter {
     required this.liveWidth,
     required this.eraserPos,
     required this.isEraser,
+    required this.isHolding,
     required this.baseImage,
   });
 
@@ -812,21 +1021,24 @@ class _DrawingPainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     // 기존 저장 드로잉 이미지
     if (baseImage != null) {
-      paintImage(
-        canvas: canvas,
-        rect: Offset.zero & size,
-        image: baseImage!,
-        fit: BoxFit.fill,
-      );
+      paintImage(canvas: canvas, rect: Offset.zero & size,
+          image: baseImage!, fit: BoxFit.fill);
     }
 
-    // 완성된 획
+    // 완성된 획들
     for (final s in strokes) {
       _draw(canvas, s.points, s.color, s.width);
     }
 
-    // 현재 그리는 중인 획
+    // 현재 그리는 중인 획 (투명 배경 유지 — Layer 1이 항상 보임)
     if (!isEraser && livePts != null && livePts!.length >= 2) {
+      if (isHolding) {
+        // 직선 보정 완료 피드백: 외곽 글로우 2단 겹침
+        _draw(canvas, livePts!,
+            liveColor.withValues(alpha: 0.15), liveWidth + 14);
+        _draw(canvas, livePts!,
+            liveColor.withValues(alpha: 0.35), liveWidth + 6);
+      }
       _draw(canvas, livePts!, liveColor, liveWidth);
     }
 
@@ -861,17 +1073,22 @@ class _DrawingPainter extends CustomPainter {
       ..style = PaintingStyle.stroke
       ..isAntiAlias = true;
 
-    // 베지어 곡선으로 부드러운 선
-    final path = Path()..moveTo(pts.first.dx, pts.first.dy);
-    for (int i = 0; i < pts.length - 1; i++) {
-      final mid = Offset(
-        (pts[i].dx + pts[i + 1].dx) / 2,
-        (pts[i].dy + pts[i + 1].dy) / 2,
-      );
-      path.quadraticBezierTo(pts[i].dx, pts[i].dy, mid.dx, mid.dy);
+    // 직선(점 2개): lineTo로 정확한 직선
+    // 곡선(점 多): 베지어 곡선으로 부드럽게
+    if (pts.length == 2) {
+      canvas.drawLine(pts.first, pts.last, paint);
+    } else {
+      final path = Path()..moveTo(pts.first.dx, pts.first.dy);
+      for (int i = 0; i < pts.length - 1; i++) {
+        final mid = Offset(
+          (pts[i].dx + pts[i + 1].dx) / 2,
+          (pts[i].dy + pts[i + 1].dy) / 2,
+        );
+        path.quadraticBezierTo(pts[i].dx, pts[i].dy, mid.dx, mid.dy);
+      }
+      path.lineTo(pts.last.dx, pts.last.dy);
+      canvas.drawPath(path, paint);
     }
-    path.lineTo(pts.last.dx, pts.last.dy);
-    canvas.drawPath(path, paint);
   }
 
   @override
