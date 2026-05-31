@@ -5,7 +5,7 @@ import '../../features/onboarding/screens/onboarding_screen.dart';
 import '../../features/onboarding/screens/splash_screen.dart';
 
 class AppRouter {
-  static final router = GoRouter(
+  static GoRouter get router => GoRouter(
     initialLocation: '/splash',
     routes: [
       GoRoute(
